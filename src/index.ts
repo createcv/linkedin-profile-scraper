@@ -180,11 +180,11 @@ export class LinkedInProfileScraper {
     if (!userDefinedOptions.sessionCookieValue) {
       throw new Error(`${errorPrefix} Option "sessionCookieValue" is required.`);
     }
-    
+
     if (userDefinedOptions.sessionCookieValue && typeof userDefinedOptions.sessionCookieValue !== 'string') {
       throw new Error(`${errorPrefix} Option "sessionCookieValue" needs to be a string.`);
     }
-    
+
     if (userDefinedOptions.userAgent && typeof userDefinedOptions.userAgent !== 'string') {
       throw new Error(`${errorPrefix} Option "userAgent" needs to be a string.`);
     }
@@ -192,11 +192,11 @@ export class LinkedInProfileScraper {
     if (userDefinedOptions.keepAlive !== undefined && typeof userDefinedOptions.keepAlive !== 'boolean') {
       throw new Error(`${errorPrefix} Option "keepAlive" needs to be a boolean.`);
     }
-   
+
     if (userDefinedOptions.timeout !== undefined && typeof userDefinedOptions.timeout !== 'number') {
       throw new Error(`${errorPrefix} Option "timeout" needs to be a number.`);
     }
-    
+
     if (userDefinedOptions.headless !== undefined && typeof userDefinedOptions.headless !== 'boolean') {
       throw new Error(`${errorPrefix} Option "headless" needs to be a boolean.`);
     }
@@ -535,6 +535,7 @@ export class LinkedInProfileScraper {
 
       // Only click the expanding buttons when they exist
       const expandButtonsSelectors = [
+        '#oc-background-section button.pv-profile-section__see-more-inline',
         '.pv-profile-section.pv-about-section .lt-line-clamp__more', // About
         '#experience-section .pv-profile-section__see-more-inline.link', // Experience
         '.pv-profile-section.education-section button.pv-profile-section__see-more-inline', // Education
@@ -555,7 +556,7 @@ export class LinkedInProfileScraper {
           statusLog(logSection, `Could not find or click expand button selector "${buttonSelector}". So we skip that one.`, scraperSessionId)
         }
       }
-      
+
 
       // To give a little room to let data appear. Setting this to 0 might result in "Node is detached from document" errors
       await page.waitFor(100);
@@ -765,7 +766,7 @@ export class LinkedInProfileScraper {
 
           const titleElement = node.querySelector('.pv-entity__summary-info h3');
           const title = titleElement?.textContent || null;
-          
+
           const companyElement = node.querySelector('.pv-entity__summary-info span.pv-entity__secondary-title');
           const company = companyElement?.textContent || null;
 
