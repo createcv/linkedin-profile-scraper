@@ -108,8 +108,8 @@ export const getLocationFromText = (text: string): Location | null => {
       province,
       country: parts[0]
     }
-  } 
-  
+  }
+
   if (getIsCity(parts[0])) {
     return {
       city: parts[0],
@@ -130,7 +130,7 @@ export const getCleanText = (text: string | null) => {
   const regexRemoveMultipleSpaces = / +/g
   const regexRemoveLineBreaks = /(\r\n\t|\n|\r\t)/gm
 
-  if (!text) return null
+  if (!text) return ''
 
   const cleanText = text
     .replace(regexRemoveLineBreaks, '')

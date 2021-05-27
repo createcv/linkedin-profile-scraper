@@ -1,11 +1,32 @@
 require('dotenv').config();
 
-import express from 'express';
+// import express from 'express';
+import mongoose from 'mongoose';
 import { LinkedInProfileScraper } from '../index';
 
-const app = express();
+// const STARTING_PROFILE = 'https://www.linkedin.com/in/luis-lima-09134135/';
 
 (async () => {
+
+  await mongoose.connect('mongodb://localhost/linkedin_scraped_data', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    useFindAndModify: false,
+    useCreateIndex: true
+  }).catch(console.log);
+
+  const Schema = mongoose.Schema;
+
+  const AvailableProfilesSchema = new Schema({
+    url: {
+      type: String,
+      unique: true
+    },
+    has_linked_profiles_been_scraped: Boolean,
+  });
+
+  const AvailableProfiles = mongoose.model('AvailableProfiles', AvailableProfilesSchema);
+
   // Setup environment variables to fill the sessionCookieValue
   const scraper = new LinkedInProfileScraper({
     sessionCookieValue: `${process.env.LINKEDIN_SESSION_COOKIE_VALUE}`,
@@ -14,17 +35,45 @@ const app = express();
 
   // Prepare the scraper
   // Loading it in memory
-  await scraper.setup()
+  await scraper.setup();
 
-  // Usage: http://localhost:3000/?url=https://www.linkedin.com/in/jvandenaardweg/
-  app.get('/', async (req, res) => {
-    const urlToScrape = req.query.url as string;
+  while (true) {
+    const availableProfile: any = await AvailableProfiles.findOne({
+      has_linked_profiles_been_scraped: false,
+    }).skip(parseInt(process.env.SKIP_NUMBER || '0') || 0);
 
-    const result = await scraper.run(urlToScrape)
+    console.log(availableProfile);
 
-    return res.json(result)
-  })
+    const linkedProfiles = await scraper.getLinkedProfiles(availableProfile.url);
+    const {
+      peopleYouMayKnow,
+      peopleAlsoViewed
+    } = linkedProfiles;
 
-  app.listen(process.env.PORT || 3000)
+    console.log({
+      peopleYouMayKnow,
+      peopleAlsoViewed
+    })
+
+    for (let i = 0; i < peopleAlsoViewed.length; i++) {
+      await AvailableProfiles.create({
+        url: peopleAlsoViewed[i],
+        has_linked_profiles_been_scraped: false
+      }).catch(() => console.log('duplicate found'));
+    }
+
+    for (let i = 0; i < peopleYouMayKnow.length; i++) {
+      await AvailableProfiles.create({
+        url: peopleYouMayKnow[i],
+        has_linked_profiles_been_scraped: false
+      }).catch(() => console.log('duplicate found'));
+    }
+
+    await AvailableProfiles.findOneAndUpdate({
+      url: availableProfile.url,
+    }, {
+      has_linked_profiles_been_scraped: true
+    }).catch(console.log);
+  }
+
 })()
-

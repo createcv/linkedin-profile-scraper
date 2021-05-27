@@ -1,5 +1,7 @@
 import puppeteer, { Page, Browser } from 'puppeteer'
 import treeKill from 'tree-kill';
+const TurndownService = require('turndown');
+const turndownService = TurndownService();
 
 import blockedHostsList from './blocked-hosts';
 
@@ -89,6 +91,11 @@ export interface VolunteerExperience {
   description: string | null;
 }
 
+export interface Language {
+  language: string | null;
+  proficiency: string | null;
+}
+
 export interface Skill {
   skillName: string | null;
   endorsementCount: number | null;
@@ -166,7 +173,7 @@ export class LinkedInProfileScraper {
   readonly options: ScraperOptions = {
     sessionCookieValue: '',
     keepAlive: false,
-    timeout: 10000,
+    timeout: 600000,
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36',
     headless: true
   }
@@ -540,9 +547,10 @@ export class LinkedInProfileScraper {
         '#experience-section .pv-profile-section__see-more-inline.link', // Experience
         '.pv-profile-section.education-section button.pv-profile-section__see-more-inline', // Education
         '.pv-skill-categories-section [data-control-name="skill_details"]', // Skills
+        '.pv-accomplishments-block.languages [aria-controls="languages-expandable-content"]', // Skills
       ];
 
-      const seeMoreButtonsSelectors = ['.pv-entity__description .lt-line-clamp__line.lt-line-clamp__line--last .lt-line-clamp__more[href="#"]', '.lt-line-clamp__more[href="#"]:not(.lt-line-clamp__ellipsis--dummy)']
+      const seeMoreButtonsSelectors = ['.inline-show-more-text__button', '.inline-show-more-text__button .pv-entity__description .lt-line-clamp__line.lt-line-clamp__line--last .lt-line-clamp__more[href="#"]', '.lt-line-clamp__more[href="#"]:not(.lt-line-clamp__ellipsis--dummy)']
 
       statusLog(logSection, 'Expanding all sections by clicking their "See more" buttons', scraperSessionId)
 
@@ -585,20 +593,20 @@ export class LinkedInProfileScraper {
 
         const url = window.location.href
 
-        const fullNameElement = profileSection?.querySelector('.pv-top-card--list li:first-child')
+        const fullNameElement = profileSection?.querySelector('h1')
         const fullName = fullNameElement?.textContent || null
 
-        const titleElement = profileSection?.querySelector('h2')
+        const titleElement = profileSection?.querySelector('.text-body-medium')
         const title = titleElement?.textContent || null
 
-        const locationElement = profileSection?.querySelector('.pv-top-card--list.pv-top-card--list-bullet.mt1 li:first-child')
+        const locationElement = profileSection?.querySelector('.pb2 .text-body-small')
         const location = locationElement?.textContent || null
 
         const photoElement = profileSection?.querySelector('.pv-top-card__photo') || profileSection?.querySelector('.profile-photo-edit__preview')
         const photo = photoElement?.getAttribute('src') || null
 
-        const descriptionElement = document.querySelector('.pv-about__summary-text .lt-line-clamp__raw-line') // Is outside "profileSection"
-        const description = descriptionElement?.textContent || null
+        const descriptionElement = document.querySelector('.pv-about-section .inline-show-more-text') // Is outside "profileSection"
+        const description = descriptionElement?.innerHTML || null
 
         return {
           fullName,
@@ -617,7 +625,7 @@ export class LinkedInProfileScraper {
         fullName: getCleanText(rawUserProfileData.fullName),
         title: getCleanText(rawUserProfileData.title),
         location: rawUserProfileData.location ? getLocationFromText(rawUserProfileData.location) : null,
-        description: getCleanText(rawUserProfileData.description),
+        description: turndownService.turndown(getCleanText(rawUserProfileData.description)),
       }
 
       statusLog(logSection, `Got user profile data: ${JSON.stringify(userProfile)}`, scraperSessionId)
@@ -640,7 +648,7 @@ export class LinkedInProfileScraper {
           const company = companyElementClean?.textContent || null
 
           const descriptionElement = node.querySelector('.pv-entity__description');
-          const description = descriptionElement?.textContent || null
+          const description = descriptionElement?.innerHTML || null
 
           const dateRangeElement = node.querySelector('.pv-entity__date-range span:nth-child(2)');
           const dateRangeText = dateRangeElement?.textContent || null
@@ -691,7 +699,7 @@ export class LinkedInProfileScraper {
           endDate,
           endDateIsPresent,
           durationInDays,
-          description: getCleanText(rawExperience.description)
+          description: turndownService.turndown(getCleanText(rawExperience.description))
         }
       })
 
@@ -805,7 +813,7 @@ export class LinkedInProfileScraper {
           ...rawVolunteerExperience,
           title: getCleanText(rawVolunteerExperience.title),
           company: getCleanText(rawVolunteerExperience.company),
-          description: getCleanText(rawVolunteerExperience.description),
+          description: turndownService.turndown(getCleanText(rawVolunteerExperience.description)),
           startDate,
           endDate,
           durationInDays: getDurationInDays(startDate, endDate),
@@ -833,6 +841,28 @@ export class LinkedInProfileScraper {
 
       statusLog(logSection, `Got skills data: ${JSON.stringify(skills)}`, scraperSessionId)
 
+      const languages: Language[] = await page.$$eval('.pv-profile-section.pv-accomplishments-block.languages ul > .ember-view', nodes => {
+        // Note: the $$eval context is the browser context.
+        // So custom methods you define in this file are not available within this $$eval.
+
+        return nodes.map((node) => {
+          const language = node.querySelector('h4');
+          const proficiency = node.querySelector('p');
+
+          return {
+            language: (language) ? language.textContent?.trim() : null,
+            proficiency: (proficiency) ? proficiency.textContent?.trim() : null,
+          } as Language;
+        }).map((eachLanguage) => {
+          return {
+            language: eachLanguage.language ? eachLanguage.language.replace('Language name\n  ', '') : null,
+            proficiency: eachLanguage.proficiency,
+          }
+        }) as Language[]
+      });
+
+      statusLog(logSection, `Got languages data: ${JSON.stringify(languages)}`, scraperSessionId)
+
       statusLog(logSection, `Done! Returned profile details for: ${profileUrl}`, scraperSessionId)
 
       if (!this.options.keepAlive) {
@@ -845,7 +875,7 @@ export class LinkedInProfileScraper {
         statusLog(logSection, 'Done. Puppeteer is being kept alive in memory.')
 
         // Only close the current page, we do not need it anymore
-        await page.close()
+        // await page.close()
       }
 
       return {
@@ -853,7 +883,105 @@ export class LinkedInProfileScraper {
         experiences,
         education,
         volunteerExperiences,
-        skills
+        skills,
+        languages
+      }
+    } catch (err) {
+      // Kill Puppeteer
+      await this.close()
+
+      statusLog(logSection, 'An error occurred during a run.')
+
+      // Throw the error up, allowing the user to handle this error himself.
+      throw err;
+    }
+  }
+
+  /**
+   * Method to scrape a user profile.
+   */
+  public getLinkedProfiles = async (profileUrl: string) => {
+    const logSection = 'getLinkedProfiles'
+
+    const scraperSessionId = new Date().getTime();
+
+    if (!this.browser) {
+      throw new Error('Browser is not set. Please run the setup method first.')
+    }
+
+    if (!profileUrl) {
+      throw new Error('No profileUrl given.')
+    }
+
+    if (!profileUrl.includes('linkedin.com/')) {
+      throw new Error('The given URL to scrape is not a linkedin.com url.')
+    }
+
+    try {
+      // Eeach run has it's own page
+      const page = await this.createPage();
+
+      statusLog(logSection, `Navigating to LinkedIn profile: ${profileUrl}`, scraperSessionId)
+
+      await page.goto(profileUrl, {
+        // Use "networkidl2" here and not "domcontentloaded". 
+        // As with "domcontentloaded" some elements might not be loaded correctly, resulting in missing data.
+        waitUntil: 'networkidle2',
+        timeout: this.options.timeout
+      });
+
+      statusLog(logSection, 'LinkedIn profile page loaded!', scraperSessionId)
+
+      statusLog(logSection, 'Getting all the LinkedIn profile data by scrolling the page to the bottom, so all the data gets loaded into the page...', scraperSessionId)
+
+      await autoScroll(page);
+
+      statusLog(logSection, 'Parsing data...', scraperSessionId)
+
+      const peopleAlsoViewed: String[] = await page.$$eval('.pv-browsemap-section ul > li', (nodes) => {
+        // Note: the $$eval context is the browser context.
+        // So custom methods you define in this file are not available within this $$eval.
+        let data: String[] = []
+        for (const node of nodes) {
+
+          const profileUrl = node.querySelector('a')?.getAttribute('href')?.toString() || '';
+
+          data.push(`https://www.linkedin.com${profileUrl}`);
+        }
+        return data
+      });
+
+      const peopleYouMayKnow: String[] = await page.$$eval('.pv-profile-pymk__container ul > li', (nodes) => {
+        // Note: the $$eval context is the browser context.
+        // So custom methods you define in this file are not available within this $$eval.
+        let data: String[] = []
+        for (const node of nodes) {
+
+          const profileUrl = node.querySelector('a')?.getAttribute('href')?.toString() || '';
+
+          data.push(`https://www.linkedin.com${profileUrl}`);
+        }
+        return data
+      });
+
+
+
+      if (!this.options.keepAlive) {
+        statusLog(logSection, 'Not keeping the session alive.')
+
+        await this.close(page)
+
+        statusLog(logSection, 'Done. Puppeteer is closed.')
+      } else {
+        statusLog(logSection, 'Done. Puppeteer is being kept alive in memory.')
+
+        // Only close the current page, we do not need it anymore
+        // await page.close()
+      }
+
+      return {
+        peopleYouMayKnow,
+        peopleAlsoViewed
       }
     } catch (err) {
       // Kill Puppeteer
